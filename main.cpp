@@ -24,6 +24,7 @@ std::unordered_map<void *,breakpoint> breakpoints;
 
 void disableBreakpoint(void * address){
 	auto b = breakpoints[address];
+	printf("Disabling breakpoint at %x with pid %i \n",address,b.pid);
 	auto word = ptrace(PTRACE_PEEKDATA, b.pid, address, nullptr);
     auto oldWord = ((word & ~0xff) | b.overwrittenByte);
     ptrace(PTRACE_POKEDATA, b.pid, address, oldWord);
@@ -55,7 +56,9 @@ void addBreakpoint(pid_t id, std::intptr_t addr){
 	}
 
 	breakpoint.enabled = true;
-	disableBreakpoint(breakpoint.address);
+	breakpoints[(void*)addr] = breakpoint;
+	disableBreakpoint((void*)addr);
+//	ptrace(PTRACE_POKETEXT, id, address, unmodifiedWord);
 }
 
 std::vector<std::string> split(const std::string &s, char delimiter) {
