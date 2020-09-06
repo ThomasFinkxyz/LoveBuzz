@@ -11,6 +11,8 @@
 //#include <string.h>
 #include <errno.h>
 #include <libexplain/ptrace.h>
+#include <cassert>
+#include <sys/user.h>
 // Code for the int 3 instruction in x86 that stops execution of debugee process.
 #define interrupt 0xCC
 
@@ -20,6 +22,10 @@ struct breakpoint{
 	bool enabled;
 	uint8_t overwrittenByte;
 };
+
+uint64_t readMemory(pid_t id,uintptr_t addr){
+	return ptrace(PTRACE_PEEKDATA, id, addr, nullptr);
+}
 std::unordered_map<void *,breakpoint> breakpoints;
 
 void disableBreakpoint(void * address){
@@ -57,8 +63,7 @@ void addBreakpoint(pid_t id, std::intptr_t addr){
 
 	breakpoint.enabled = true;
 	breakpoints[(void*)addr] = breakpoint;
-	disableBreakpoint((void*)addr);
-//	ptrace(PTRACE_POKETEXT, id, address, unmodifiedWord);
+	//disableBreakpoint((void*)addr);
 }
 
 std::vector<std::string> split(const std::string &s, char delimiter) {
@@ -78,27 +83,58 @@ bool is_prefix(const std::string& s, const std::string& of) {
     return std::equal(s.begin(), s.end(), of.begin());
 }
 
-//void toFile(char *string){
-//	FILE * file = fopen("output","w");
-//	fprintf(file,"%s",string);
-//	fclose(file);
-//}
-
-void continueExecution(pid_t debugeeID){
+void wait(pid_t id){
 	int wait_status;
     auto options = 0;
-	ptrace(PTRACE_CONT, debugeeID, nullptr, nullptr);
-    waitpid(debugeeID, &wait_status, options);
+    waitpid(id, &wait_status, options);
+}
+
+void step(pid_t id){
+	ptrace(PTRACE_SINGLESTEP,id,0,0);
+	wait(id);
+}
+
+void continueExecution(pid_t id){
+	ptrace(PTRACE_CONT, id, nullptr, nullptr);
+	wait(id);
+}
+
+void test(pid_t id){
+	addBreakpoint(id,0x401da4);
+	printf("%x \n",readMemory(id,0x401da4));
+	//assert(readMemory(id,0x401da4) == (uint64_t)0x8087cc);
+	disableBreakpoint((void*)0x401da4);
+	//assert(readMemory(id,0x401da4) == (uint64_t)0x8087e8);
+	printf("%x \n",readMemory(id,0x401da4));
+}
+
+user_regs_struct getRegisters(pid_t id){
+	user_regs_struct registers;
+	ptrace(PTRACE_GETREGS,id,nullptr,&registers);
+	return registers;
+}
+
+void printRegisters(pid_t id){
+	struct user_regs_struct regs;
+	regs = getRegisters(id);
+	printf("r15: %x r14: %x r13: %x r12: %x rbp: %x \n"
+	"rbx: %x r11: %x r10: %x r9: %x r8: %x \n"
+	"rax: %x rcx: %x rdx: %x rsi: %x rdi: %x \n"
+	"orig_rax: %x rip: %x cs: %x eflags: %x \n"
+	"rsp: %x ss: %x fs_base: %x gs_base: %x \n"
+	"ds: %x es: %x fs: %x gs: %x \n",
+	regs.r15,regs.r14,regs.r13,regs.r12,regs.rbp,
+	regs.rbx,regs.r11,regs.r10,regs.r9,regs.r8,
+	regs.rax,regs.rcx,regs.rdx,regs.rsi,regs.rdi,
+	regs.orig_rax,regs.rip,regs.cs,regs.eflags,
+	regs.rsp,regs.ss,regs.fs_base,regs.gs_base,
+	regs.ds,regs.es,regs.fs,regs.gs);
 }
 
 void debug(char name[], pid_t debugeeID){
-	int wait_status;
-    auto options = 0;
-    waitpid(debugeeID, &wait_status, options);
-	printf("got here \n");
+	wait(debugeeID);
     char* line = nullptr;
     while((line = linenoise("<debugger> ")) != nullptr) {
-//		toFile(line);
 		if(line[0] != '\0'){
 			auto args = split(line,' ');
     		auto command = args[0];
@@ -109,15 +145,12 @@ void debug(char name[], pid_t debugeeID){
 				std::string addr {args[1], 2};
         		addBreakpoint(debugeeID,std::stol(addr, 0, 16));
 			}else if(is_prefix(command, "step")){
-				int counter;
-				while(ptrace(PTRACE_SINGLESTEP,debugeeID,0,0) != -1 ){
-    				waitpid(debugeeID, &wait_status, options);
-					//printf("%i \n",ptrace(PTRACE_SINGLESTEP,debugeeID,0,0));
-					counter++;
-				}
-				printf("%i \n",counter);
-//waitpid(debugeeID,&wait_status,options);
-			}else {
+				step(debugeeID);
+			}else if(is_prefix(command, "test")){
+				test(debugeeID);
+			}else if (is_prefix(command, "regs")){
+				printRegisters(debugeeID);
+			} else{
     			printf("Unknown command\n");
 			}
     		linenoiseHistoryAdd(line);
@@ -137,7 +170,6 @@ int main(int argc, char* argv[]){
 		case 0:
 			//Debugee
 			ptrace(PTRACE_TRACEME, 0, NULL,NULL);
-			printf("Got here too \n");
 			execve(programName,NULL,NULL);
 			break;
 		case -1:
