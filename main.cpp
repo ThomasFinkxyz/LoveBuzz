@@ -2,6 +2,7 @@
 #include <vector>
 #include <sstream>
 #include <unordered_map>
+#include <map>
 
 #include <stdio.h>
 #include <linenoise.h>
@@ -108,11 +109,140 @@ void test(pid_t id){
 	printf("%x \n",readMemory(id,0x401da4));
 }
 
+// Tutorial had orig_rax as -1 but since it was the same as the pc
+// I changed it. Those registers doesn't seem to have a Dwarf number
+// as far as I can tell.
+
+static std::map<std::string,int> regName2Num = {
+	{ "r15", 15},
+	{"r14", 14},
+	{"r13" , 13},
+	{"r12" , 12},
+	{"rbp" , 6},
+	{"rbx" , 3},
+	{"r11" , 11},
+ 	{"r10" , 10},
+	{"r9" ,   9},
+	{"r8" ,   8},
+	{"rax" ,  0},
+	{"rcx" , 2},
+	{"rdx" ,  1},
+	{"rsi" ,  4},
+	{"rdi" ,  5},
+	{"orig_rax", -2},
+	{"rip" ,   -1},
+	{"cs" ,    51},
+	{"eflags", 49},
+	{"rsp" ,   7},
+	{"ss" ,    52},
+	{"fs_base",58},
+	{"gs_base", 59},
+	{"ds" ,  53},
+	{"es" ,   50},
+	{"fs" ,   54},
+	{"gs" ,   55}
+};
+
 user_regs_struct getRegisters(pid_t id){
 	user_regs_struct registers;
 	ptrace(PTRACE_GETREGS,id,nullptr,&registers);
 	return registers;
 }
+
+uint64_t readReg(pid_t id, int dwarfNum){
+	user_regs_struct regs = getRegisters(id);
+	switch(dwarfNum){
+		case 15:
+			return regs.r15;
+		case 14:
+			return regs.r14;
+		case 13:
+			return regs.r13;
+		case 12:
+			return regs.r12;
+		case 6:
+			return regs.rbp;
+		case 3:
+			return regs.rbx;
+		case 11:
+			return regs.r11;
+		case 10:
+			return regs.r10;
+		case 9:
+			return regs.r9;
+		case 8:
+			return regs.r8;
+		case 0:
+			return regs.rax;
+		case 2:
+			return regs.rcx;
+		case 1:
+			return regs.rdx;
+		case 4:
+			return regs.rsi;
+		case 5:
+			return regs.rdi;
+		case -2:
+			return regs.orig_rax;
+		case -1:
+			return regs.rip;
+		case 51:
+			return regs.cs;
+		case 49:
+			return regs.eflags;
+		case 7:
+			return regs.rsp;
+		case 52:
+			return regs.ss;
+		case 58:
+			return regs.fs_base;
+		case 59:
+			return regs.gs_base;
+		case 53:
+			return regs.ds;
+		case 50:
+			return regs.es;
+		case 54:
+			return regs.fs;
+		case 55:
+			return regs.gs;
+		default:
+			printf("Error: No register with Dwarf num of %i \n",dwarfNum);
+			return 0;
+	}
+
+//r13,13
+//r12,12
+//rbp,6
+//rbx,3
+//r11,11
+//r10,10
+//r9,9
+//r8,8
+//rax,0
+//rcx,2
+//rdx,1
+//rsi,4
+//rdi,5
+//orig_rax-2
+//rip,-1
+//cs,51},
+//eflags,49
+//rsp,7
+//ss,52,
+//fs_base,58
+//gs_base,59
+//ds,53
+//es,50
+//fs,54
+//gs,55
+
+}
+
+uint64_t readReg(pid_t id, std::string name){
+	return readReg(id,regName2Num[name]);
+}
+
 
 void printRegisters(pid_t id){
 	struct user_regs_struct regs;
@@ -130,6 +260,8 @@ void printRegisters(pid_t id){
 	regs.rsp,regs.ss,regs.fs_base,regs.gs_base,
 	regs.ds,regs.es,regs.fs,regs.gs);
 }
+
+
 
 void debug(char name[], pid_t debugeeID){
 	wait(debugeeID);
@@ -150,6 +282,7 @@ void debug(char name[], pid_t debugeeID){
 				test(debugeeID);
 			}else if (is_prefix(command, "regs")){
 				printRegisters(debugeeID);
+				printf("rip is %x \n",readReg(debugeeID,"rip"));
 			} else{
     			printf("Unknown command\n");
 			}
