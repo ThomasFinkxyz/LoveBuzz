@@ -10,8 +10,8 @@
 #include <sys/ptrace.h>
 #include <sys/wait.h>
 //#include <string.h>
-#include <errno.h>
-#include <libexplain/ptrace.h>
+//#include <errno.h>
+//#include <libexplain/ptrace.h>
 #include <cassert>
 #include <sys/user.h>
 // Code for the int 3 instruction in x86 that stops execution of debugee process.
@@ -95,10 +95,7 @@ void step(pid_t id){
 	wait(id);
 }
 
-void continueExecution(pid_t id){
-	ptrace(PTRACE_CONT, id, nullptr, nullptr);
-	wait(id);
-}
+
 
 void test(pid_t id){
 	addBreakpoint(id,0x401da4);
@@ -333,6 +330,20 @@ void writeReg(pid_t id,std::string name,uint64_t value){
 	writeReg(id,regName2Num[name], value);
 }
 
+void continueExecution(pid_t id){
+	uint64_t lastInstructionLoc = readReg(id,"rip")-1;
+	if(breakpoints.count((void *)lastInstructionLoc)){
+		if(breakpoints[(void *)lastInstructionLoc].enabled){
+			writeReg(id,"rip",lastInstructionLoc);
+			disableBreakpoint((void *)lastInstructionLoc);
+			ptrace(PTRACE_SINGLESTEP,id,NULL,NULL);
+			wait(id);
+			addBreakpoint(id,(std::intptr_t)lastInstructionLoc);
+		}
+	}
+	ptrace(PTRACE_CONT, id, nullptr, nullptr);
+	wait(id);
+}
 
 void debug(char name[], pid_t debugeeID){
 	wait(debugeeID);
